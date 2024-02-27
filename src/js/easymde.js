@@ -23,6 +23,7 @@ var anchorToExternalRegex = new RegExp(/(<a.*?https?:\/\/.*?[^a]>)+?/g);
 var bindings = {
     'toggleBold': toggleBold,
     'toggleItalic': toggleItalic,
+    'toggleUnderline': toggleUnderline,
     'drawLink': drawLink,
     'toggleHeadingSmaller': toggleHeadingSmaller,
     'toggleHeadingBigger': toggleHeadingBigger,
@@ -51,6 +52,7 @@ var bindings = {
 var shortcuts = {
     'toggleBold': 'Cmd-B',
     'toggleItalic': 'Cmd-I',
+    'toggleUnderline': 'Cmd-U',
     'drawLink': 'Cmd-K',
     'toggleHeadingSmaller': 'Cmd-H',
     'toggleHeadingBigger': 'Shift-Cmd-H',
@@ -87,6 +89,17 @@ var isMobile = function () {
     })(navigator.userAgent || navigator.vendor || window.opera);
     return check;
 };
+
+
+/**
+ * Count the str as php does, to anticipate the len in php.
+ * @param {string} str - str to count.
+ * @return {int} The php length of str.
+ */
+function mb_strlen(str) {
+    var len = (str.match(/\n/g) || []).length;
+    return len + str.normalize('NFD').length;
+  }
 
 /**
  * Modify HTML to add 'target="_blank"' to links so they open in new tabs by default.
@@ -330,6 +343,8 @@ function getState(cm, pos) {
             ret.quote = true;
         } else if (data === 'em') {
             ret.italic = true;
+        } else if (data === 'u') {
+            ret.underline = true;
         } else if (data === 'quote') {
             ret.quote = true;
         } else if (data === 'strikethrough') {
@@ -427,6 +442,51 @@ function toggleBold(editor) {
  */
 function toggleItalic(editor) {
     _toggleBlock(editor, 'italic', editor.options.blockStyles.italic);
+}
+
+
+function _toggleAroundBlock(editor, start_chars, end_chars) {
+    if (!editor.codemirror || editor.isPreviewActive()) {
+      return;
+    }
+    var linesLength = [];
+    editor.codemirror.eachLine((line) => { linesLength.push(mb_strlen(line.text)); });
+    // function pos(point) {
+    //   var c = 0;
+    //   for (var i = 0; i < point.line; i++) {
+    //     c += linesLength[i];
+    //   }
+    //   return c + point.ch;
+    // }
+    end_chars = (typeof end_chars === 'undefined') ? start_chars : end_chars;
+    var cm = editor.codemirror;
+    var startPoint = cm.getCursor('start');
+    var beforeText = editor.value().substring(0, startPoint.ch);
+    var endPoint = cm.getCursor('end');
+    var afterText = editor.value().substring(endPoint.ch);
+    // var text = editor.value();
+  
+    if (beforeText.endsWith(start_chars) && afterText.startsWith(end_chars)) {
+      cm.replaceRange('', { line: endPoint.line, ch: (endPoint.ch) }, { line: endPoint.line, ch: (endPoint.ch + mb_strlen(end_chars)) }); // On retire les end_chars
+      cm.replaceRange('', { line: startPoint.line, ch: (startPoint.ch - mb_strlen(start_chars)) }, { line: startPoint.line, ch: (startPoint.ch) }); // On retire les start_chars APRES car sinon les positions sont faussées
+      return;
+    }
+    cm.replaceSelection(start_chars + cm.getSelection() + end_chars);
+  
+    startPoint.ch += mb_strlen(start_chars);
+    if (!(startPoint.line === endPoint.line && startPoint.ch === endPoint.ch)) {
+      endPoint.ch += mb_strlen(start_chars);
+    }
+  
+    cm.setSelection(startPoint, endPoint);
+    cm.focus();
+  }
+/**
+ * Action for toggling underline.
+ * @param {EasyMDE} editor
+ */
+function toggleUnderline(editor) {
+    _toggleAroundBlock(editor, editor.options.blockStyles.underline[0], editor.options.blockStyles.underline[1]);
 }
 
 
@@ -823,12 +883,13 @@ function cleanBlock(editor) {
  * @param {EasyMDE} editor
  */
 function drawLink(editor) {
+    if (editor.checkLength()) return false;
     var options = editor.options;
     var url = 'https://';
     if (options.promptURLs) {
         var result = prompt(options.promptTexts.link, url);
-        if (!result) {
-            return false;
+        if (!result || editor.checkLength(mb_strlen(result)+4)) { // 4 = '[]()'.length
+          return false;
         }
         url = escapePromptURL(result);
     }
@@ -840,12 +901,13 @@ function drawLink(editor) {
  * @param {EasyMDE} editor
  */
 function drawImage(editor) {
+    if (editor.checkLength()) return false;
     var options = editor.options;
     var url = 'https://';
     if (options.promptURLs) {
         var result = prompt(options.promptTexts.image, url);
-        if (!result) {
-            return false;
+        if (!result || editor.checkLength(mb_strlen(result)+5)) { // 5 = '![]()'.length
+          return false;
         }
         url = escapePromptURL(result);
     }
@@ -902,10 +964,16 @@ function afterImageUploaded(editor, url) {
  * @param {EasyMDE} editor
  */
 function drawTable(editor) {
-    var cm = editor.codemirror;
-    var stat = getState(cm);
-    var options = editor.options;
-    _replaceSelection(cm, stat.table, options.insertTexts.table);
+    // Custom table creation (new tab redirect)
+    if (confirm(editor.options.promptTexts.table)) {
+        window.open(editor.options.insertTexts.tableLink, '_blank');
+    }
+    // return;
+    // Default table creation
+//     var cm = editor.codemirror;
+//     var stat = getState(cm);
+//     var options = editor.options;
+//     _replaceSelection(cm, stat.table, options.insertTexts.table);
 }
 
 /**
@@ -1461,6 +1529,7 @@ function wordCount(data) {
 var iconClassMap = {
     'bold': 'fa fa-bold',
     'italic': 'fa fa-italic',
+    'underline': 'fa fa-underline',
     'strikethrough': 'fa fa-strikethrough',
     'heading': 'fa fa-header fa-heading',
     'heading-smaller': 'fa fa-header fa-heading header-smaller',
@@ -1499,6 +1568,13 @@ var toolbarBuiltInButtons = {
         action: toggleItalic,
         className: iconClassMap['italic'],
         title: 'Italic',
+        default: true,
+    },
+    'underline': {
+        name: 'underline',
+        action: toggleUnderline,
+        className: iconClassMap['underline'],
+        title: 'Underline',
         default: true,
     },
     'strikethrough': {
@@ -1681,11 +1757,14 @@ var insertTexts = {
     // uploadedImage: ['![](#url#)\n', ''], // TODO: New line insertion doesn't work here.
     table: ['', '\n\n| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n| Text     | Text     | Text     |\n\n'],
     horizontalRule: ['', '\n\n-----\n\n'],
+    tableLink: 'https://www.tablesgenerator.com/markdown_tables',
 };
 
 var promptTexts = {
     link: 'URL for the link:',
     image: 'URL of the image:',
+    table: 'This will open a new tab to a table generator. \nAre you sure?',
+    maxLength: ['Maximum length: ', ' characters.'],
 };
 
 var timeFormat = {
@@ -1700,6 +1779,7 @@ var blockStyles = {
     'bold': '**',
     'code': '```',
     'italic': '*',
+    'underline': ['<u>', '</u>'],
 };
 
 /**
@@ -1940,6 +2020,25 @@ function EasyMDE(options) {
             }
         });
     }
+
+    const deleteKeys = ['undo' /* In fact we can't know that il will delete text (assuming that last action is adding text) */, '+delete', 'cut'];
+    // Check for maxlength in options
+    if (options.maxlength) {
+        this.codemirror.on('beforeChange', function (cm, change) {
+            if(deleteKeys.indexOf(change.origin) !== -1) return;
+            var delta = 0;
+            change.text.forEach(function (text) {
+                delta += mb_strlen(text);
+            });
+            var str = cm.getValue();
+            var length = mb_strlen(str) + delta;
+            if (length > options.maxlength) {
+                options.errorCallback(options.promptTexts.maxlength[0] + options.maxlength + options.promptTexts.maxlength[1]);
+                change.cancel();
+                cm.setValue(str.substring(0, options.maxlength)); // Still to much considering difference between mb_strlen and js length
+            }
+        });
+    }
 }
 
 /**
@@ -1963,6 +2062,28 @@ EasyMDE.prototype.uploadImages = function (files, onSuccess, onError) {
         this.uploadImage(files[i], onSuccess, onError);
     }
     this.updateStatusBar('upload-image', this.options.imageTexts.sbOnDrop.replace('#images_names#', names.join(', ')));
+};
+
+/**
+ * Check the length of the textarea.
+ *
+ * @param {int} moreChar=0 Add length as delta for edit.
+ * @returns {boolean} true if the length is greater than the maximum length, false otherwise.
+ */
+EasyMDE.prototype.checkLength = function (moreChar = 0) {
+    if (!this.options.maxLength) return false;
+    if ((mb_strlen(this.value()) + 1 + moreChar) <= this.options.maxLength) return false;
+    alert(this.options.promptTexts.maxLength[0] + this.options.maxLength + this.options.promptTexts.maxLength[1]);
+    return true;
+};
+
+/**
+ * Returns the length of the textarea.
+ *
+ * @returns {int} The length of the textarea.
+ */
+EasyMDE.prototype.length = function () {
+    return mb_strlen(this.value());
 };
 
 /**
@@ -2763,6 +2884,14 @@ EasyMDE.prototype.createStatusbar = function (status) {
                 onUpdate = function (el) {
                     el.innerHTML = wordCount(cm.getValue());
                 };
+            }
+            else if (name === 'max') {
+                defaultValue = function (el) {
+                    el.innerHTML = '/'  + options.maxLength;
+                };
+                onUpdate = function (el) {
+                    el.innerHTML = mb_strlen(cm.getValue()) + '/'  + options.maxLength;
+                };
             } else if (name === 'lines') {
                 defaultValue = function (el) {
                     el.innerHTML = cm.lineCount();
@@ -2857,9 +2986,9 @@ EasyMDE.prototype.createStatusbar = function (status) {
 /**
  * Get or set the text content.
  */
-EasyMDE.prototype.value = function (val) {
+EasyMDE.prototype.value = function (val = 'undefined') {
     var cm = this.codemirror;
-    if (val === undefined) {
+    if (val === 'undefined') {
         return cm.getValue();
     } else {
         cm.getDoc().setValue(val);
@@ -2882,6 +3011,7 @@ EasyMDE.prototype.value = function (val) {
  */
 EasyMDE.toggleBold = toggleBold;
 EasyMDE.toggleItalic = toggleItalic;
+EasyMDE.toggleUnderline = toggleUnderline;
 EasyMDE.toggleStrikethrough = toggleStrikethrough;
 EasyMDE.toggleBlockquote = toggleBlockquote;
 EasyMDE.toggleHeadingSmaller = toggleHeadingSmaller;
@@ -2915,6 +3045,9 @@ EasyMDE.prototype.toggleBold = function () {
 };
 EasyMDE.prototype.toggleItalic = function () {
     toggleItalic(this);
+};
+EasyMDE.prototype.toggleUnderline = function () {
+    toggleUnderline(this);
 };
 EasyMDE.prototype.toggleStrikethrough = function () {
     toggleStrikethrough(this);
