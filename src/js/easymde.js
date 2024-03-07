@@ -1680,7 +1680,7 @@ var toolbarBuiltInButtons = {
         title: 'Import an image',
     },
     'table': {
-        name: 'table',
+        name: 'drawtable',
         action: drawTable,
         className: iconClassMap['table'],
         title: 'Ouvrir un générateur de tableau',
