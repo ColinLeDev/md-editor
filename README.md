@@ -23,11 +23,11 @@ The editor is entirely customizable, from theming to toolbar buttons and javascr
 
 ## Quick access
 
-- [EasyMDE - Markdown Editor](#easymde---markdown-editor)
-  - [Quick access](#quick-access)
-  - [Install EasyMDE](#install-easymde)
-  - [How to use](#how-to-use)
-    - [Loading the editor](#loading-the-editor)
+- feds
+  - fsd
+  - fds
+  - dfs
+    - dfs
     - [Editor functions](#editor-functions)
   - [Configuration](#configuration)
     - [Options list](#options-list)
